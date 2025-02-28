@@ -1,62 +1,96 @@
 name: CI/CD Pipeline
 
 on:
- push:
-   branches: [ main ]
- pull_request:
-   branches: [ main ]
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang libfilament1.9 libfilament-dev libassimp5 libfilament-tools libimgui-dev libminizip1 libspirv-cross-c-shared0 libstb-dev libstb0 libtinyexr1d robin-map-dev libstb-dev libglfw3-dev libassimp-dev libdraco-dev libegl-dev libegl1-mesa-dev libgles-dev libgles1 libglfw3 libglvnd-core-dev libglvnd-dev libminizip-dev libvulkan-dev libwayland-bin libwayland-dev libxrandr-dev libxrender-dev libspirv-cross-c-shared-dev vulkan-tools libgl1-mesa-dev xvfb libdraco-dev libastcenc-dev libastcenc1d libdraco4
-        
-        # Build libmeshoptimizer from source
-        git clone https://github.com/zeux/meshoptimizer.git
-        cd meshoptimizer
-        git checkout v0.18
-        cmake . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-        sudo cmake --build build --target install
-        cd ..
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            libassimp-dev \
+            libastcenc-dev \
+            libdraco-dev \
+            libegl-dev \
+            libegl1-mesa-dev \
+            libgles-dev \
+            libglfw3-dev \
+            libimgui-dev \
+            libminizip-dev \
+            libspirv-cross-c-shared-dev \
+            libstb-dev \
+            libtinyexr-dev \
+            libvulkan-dev \
+            libwayland-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            vulkan-tools \
+            libgl1-mesa-dev \
+            xvfb \
+            cmake \
+            ninja-build \
+            git \
+            libc++-dev \
+            libc++abi-dev
 
-    - name: Build project
-      run: make
+          # Build Filament from source
+          git clone https://github.com/google/filament.git
+          cd filament
+          git checkout v1.29.0  # Version compatible with Ubuntu 22.04
+          mkdir build && cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFILAMENT_ENABLE_JAVA=OFF \
+            ..
+          ninja
+          sudo ninja install
+          cd ../..
 
-    - name: Run tests
-      run: |
-        export LIBGL_ALWAYS_SOFTWARE=1
-        export GALLIUM_DRIVER=llvmpipe
-        
-        mkdir -p test/images
-        # Add your test files to a 'models' directory
-        for filepath in test/models/*.glb; do
-          filename=$(basename $filepath) 
-          echo "Modelo ${filename%.*}"
-          echo "Imagen test/images/${filename%.*}.png"
-          xvfb-run -a ./gltf2png "$filepath" 800x600 "test/images/${filename%.*}.png"
-        done
+          # Build libmeshoptimizer from source
+          git clone https://github.com/zeux/meshoptimizer.git
+          cd meshoptimizer
+          git checkout v0.18
+          cmake . -B build -DCMAKE_BUILD_TYPE=Release
+          sudo cmake --build build --target install
+          cd ..
 
-        pwd
-        ls test/images/
-        
-        # Verify outputs
-        if [ $(ls test/images/*.png | wc -l) -eq 0 ]; then
-          echo "No PNGs generated!"
-          exit 1
-        fi
+      - name: Build project
+        run: |
+          export FILAMENT_PATH=filament/build
+          make
 
-    - name: Upload generated images
-      uses: actions/upload-artifact@v4
-      with:
-        name: rendered-images
-        path: test/images/
-        if-no-files-found: error
-  
+      - name: Run tests
+        run: |
+          export LIBGL_ALWAYS_SOFTWARE=1
+          export GALLIUM_DRIVER=llvmpipe
+          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
+          mkdir -p test/images
+          for filepath in test/models/*.glb; do
+            filename=$(basename $filepath) 
+            echo "Processing ${filename%.*}"
+            xvfb-run -a ./gltf2png "$filepath" 800x600 "test/images/${filename%.*}.png"
+          done
+
+          # Verify outputs
+          if [ $(ls test/images/*.png 2>/dev/null | wc -l) -eq 0 ]; then
+            echo "Error: No PNGs generated!"
+            exit 1
+          fi
+
+      - name: Upload generated images
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-images
+          path: test/images/
+          if-no-files-found: error
