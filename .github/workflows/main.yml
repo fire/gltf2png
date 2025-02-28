@@ -42,13 +42,14 @@ jobs:
 
       - name: Build Filament
         run: |
-          git -c advice.detachedHead=false clone --depth 1 --branch v1.29.0 https://github.com/google/filament.git
+          git -c advice.detachedHead=false clone --depth 1 --branch v1.33.0 https://github.com/google/filament.git
           cd filament
           rm -rf build
           mkdir build && cd build
           cmake -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DFILAMENT_ENABLE_JAVA=OFF \
+            -DFILAMENT_SKIP_SAMPLES=ON \
             -DCMAKE_C_COMPILER=clang-14 \
             -DCMAKE_CXX_COMPILER=clang++-14 \
             -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
@@ -62,7 +63,7 @@ jobs:
         run: |
           git clone https://github.com/zeux/meshoptimizer.git
           cd meshoptimizer
-          git checkout v0.18
+          git checkout v0.22  # Updated version with modern CMake
           rm -rf build
           cmake . -B build -DCMAKE_BUILD_TYPE=Release
           sudo cmake --build build --target install
