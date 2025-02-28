@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install base dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -23,7 +23,6 @@ jobs:
             libdraco-dev \
             libegl-dev \
             libegl1-mesa-dev \
-            libgles-dev \
             libglfw3-dev \
             libimgui-dev \
             libminizip-dev \
@@ -31,9 +30,6 @@ jobs:
             libstb-dev \
             libtinyexr-dev \
             libvulkan-dev \
-            libwayland-dev \
-            libxrandr-dev \
-            libxrender-dev \
             vulkan-tools \
             libgl1-mesa-dev \
             xvfb \
@@ -43,20 +39,22 @@ jobs:
             libc++-dev \
             libc++abi-dev
 
-          # Build Filament from source
+      - name: Build Filament
+        run: |
           git clone https://github.com/google/filament.git
           cd filament
-          git checkout v1.29.0  # Version compatible with Ubuntu 22.04
+          git checkout v1.29.0
           mkdir build && cd build
           cmake -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DFILAMENT_ENABLE_JAVA=OFF \
+            -DCMAKE_INSTALL_PREFIX=./install \
             ..
-          ninja
-          sudo ninja install
-          cd ../..
+          ninja install
+          echo "FILAMENT_ROOT=$(pwd)/install" >> $GITHUB_ENV
 
-          # Build libmeshoptimizer from source
+      - name: Build meshoptimizer
+        run: |
           git clone https://github.com/zeux/meshoptimizer.git
           cd meshoptimizer
           git checkout v0.18
@@ -64,33 +62,34 @@ jobs:
           sudo cmake --build build --target install
           cd ..
 
-      - name: Build project
+      - name: Build project with Make
         run: |
-          export FILAMENT_PATH=filament/build
-          make
+          export CXXFLAGS="-I${FILAMENT_ROOT}/include -I${FILAMENT_ROOT}/include/filament"
+          export LDFLAGS="-L${FILAMENT_ROOT}/lib -L${FILAMENT_ROOT}/lib/x86_64-linux-gnu"
+          make -j$(nproc)
 
-      - name: Run tests
+      - name: Run rendering tests
         run: |
+          export LD_LIBRARY_PATH="${FILAMENT_ROOT}/lib:${FILAMENT_ROOT}/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
           export LIBGL_ALWAYS_SOFTWARE=1
           export GALLIUM_DRIVER=llvmpipe
-          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 
           mkdir -p test/images
           for filepath in test/models/*.glb; do
-            filename=$(basename $filepath) 
-            echo "Processing ${filename%.*}"
+            filename=$(basename "$filepath")
+            echo "Rendering ${filename%.*}"
             xvfb-run -a ./gltf2png "$filepath" 800x600 "test/images/${filename%.*}.png"
           done
 
-          # Verify outputs
-          if [ $(ls test/images/*.png 2>/dev/null | wc -l) -eq 0 ]; then
-            echo "Error: No PNGs generated!"
+          # Verify PNG outputs
+          if [ -z "$(ls -A test/images/*.png 2>/dev/null)" ]; then
+            echo "Error: No PNG files generated!"
             exit 1
           fi
 
-      - name: Upload generated images
+      - name: Upload rendered images
         uses: actions/upload-artifact@v4
         with:
-          name: rendered-images
+          name: rendered-output
           path: test/images/
           if-no-files-found: error
